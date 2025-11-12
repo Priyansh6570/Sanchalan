@@ -1,0 +1,158 @@
+// src/lib/youtube/api.js
+import axios from 'axios'
+
+const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY
+const YOUTUBE_API_BASE = 'https://www.googleapis.com/youtube/v3'
+
+if (!YOUTUBE_API_KEY) {
+  console.warn('⚠️ YOUTUBE_API_KEY is not set in environment variables')
+}
+
+/**
+ * Extract video ID from various YouTube URL formats
+ * Supports:
+ * - https://www.youtube.com/watch?v=VIDEO_ID
+ * - https://youtu.be/VIDEO_ID
+ * - https://www.youtube.com/embed/VIDEO_ID
+ */
+export function extractVideoId(url) {
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
+    /^([a-zA-Z0-9_-]{11})$/, // Direct video ID
+  ]
+
+  for (const pattern of patterns) {
+    const match = url.match(pattern)
+    if (match) {
+      return match[1]
+    }
+  }
+
+  return null
+}
+
+/**
+ * Fetch video details from YouTube API
+ * @param {string} videoId - YouTube video ID
+ * @returns {Promise<Object>} Video details
+ */
+export async function fetchVideoDetails(videoId) {
+  try {
+    const response = await axios.get(`${YOUTUBE_API_BASE}/videos`, {
+      params: {
+        part: 'snippet,statistics,contentDetails',
+        id: videoId,
+        key: YOUTUBE_API_KEY,
+      },
+    })
+
+    if (!response.data.items || response.data.items.length === 0) {
+      throw new Error('Video not found')
+    }
+
+    const video = response.data.items[0]
+    
+    return {
+      videoId: video.id,
+      title: video.snippet.title,
+      description: video.snippet.description,
+      thumbnailUrl: video.snippet.thumbnails?.high?.url || video.snippet.thumbnails?.default?.url,
+      channelId: video.snippet.channelId,
+      channelTitle: video.snippet.channelTitle,
+      publishedAt: video.snippet.publishedAt,
+      duration: video.contentDetails.duration,
+      viewCount: parseInt(video.statistics.viewCount || 0),
+      likeCount: parseInt(video.statistics.likeCount || 0),
+      commentCount: parseInt(video.statistics.commentCount || 0),
+    }
+  } catch (error) {
+    console.error('Error fetching video details:', error.message)
+    throw new Error(`Failed to fetch video details: ${error.message}`)
+  }
+}
+
+/**
+ * Fetch channel details from YouTube API
+ * @param {string} channelId - YouTube channel ID
+ * @returns {Promise<Object>} Channel details
+ */
+export async function fetchChannelDetails(channelId) {
+  try {
+    const response = await axios.get(`${YOUTUBE_API_BASE}/channels`, {
+      params: {
+        part: 'snippet,statistics,contentDetails',
+        id: channelId,
+        key: YOUTUBE_API_KEY,
+      },
+    })
+
+    if (!response.data.items || response.data.items.length === 0) {
+      throw new Error('Channel not found')
+    }
+
+    const channel = response.data.items[0]
+    
+    return {
+      channelId: channel.id,
+      title: channel.snippet.title,
+      description: channel.snippet.description,
+      customUrl: channel.snippet.customUrl,
+      thumbnailUrl: channel.snippet.thumbnails?.high?.url || channel.snippet.thumbnails?.default?.url,
+      subscriberCount: parseInt(channel.statistics.subscriberCount || 0),
+      videoCount: parseInt(channel.statistics.videoCount || 0),
+      viewCount: parseInt(channel.statistics.viewCount || 0),
+      publishedAt: channel.snippet.publishedAt,
+    }
+  } catch (error) {
+    console.error('Error fetching channel details:', error.message)
+    throw new Error(`Failed to fetch channel details: ${error.message}`)
+  }
+}
+
+/**
+ * Search for videos from a channel
+ * @param {string} channelId - YouTube channel ID
+ * @param {number} maxResults - Maximum number of results (default: 10)
+ * @returns {Promise<Array>} Array of video IDs
+ */
+export async function searchChannelVideos(channelId, maxResults = 10) {
+  try {
+    const response = await axios.get(`${YOUTUBE_API_BASE}/search`, {
+      params: {
+        part: 'id',
+        channelId: channelId,
+        type: 'video',
+        order: 'date',
+        maxResults: maxResults,
+        key: YOUTUBE_API_KEY,
+      },
+    })
+
+    return response.data.items.map(item => item.id.videoId)
+  } catch (error) {
+    console.error('Error searching channel videos:', error.message)
+    throw new Error(`Failed to search channel videos: ${error.message}`)
+  }
+}
+
+/**
+ * Convert ISO 8601 duration to readable format
+ * @param {string} duration - ISO 8601 duration (e.g., "PT10M30S")
+ * @returns {string} Readable duration (e.g., "10:30")
+ */
+export function formatDuration(duration) {
+  const match = duration.match(/PT(\d+H)?(\d+M)?(\d+S)?/)
+  
+  if (!match) return '0:00'
+  
+  const hours = (match[1] || '').replace('H', '')
+  const minutes = (match[2] || '0M').replace('M', '')
+  const seconds = (match[3] || '0S').replace('S', '')
+  
+  const formatted = []
+  if (hours) formatted.push(hours)
+  formatted.push(minutes.padStart(2, '0'))
+  formatted.push(seconds.padStart(2, '0'))
+  
+  return formatted.join(':')
+}
