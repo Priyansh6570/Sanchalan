@@ -21,22 +21,23 @@ const SeriesSchema = new mongoose.Schema(
       ref: 'Team',
       required: [true, 'Team is required'],
     },
-    // Episode Upload Schedule
-    episodeUploadDay: {
-      type: String,
-      enum: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday', ''],
-    },
-    episodeUploadTime: {
-      type: String, // Format: "18:00" (24-hour)
-    },
-    // Trailer Upload Schedule
-    trailerUploadDay: {
-      type: String,
-      enum: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday', ''],
-    },
-    trailerUploadTime: {
-      type: String, // Format: "12:00" (24-hour)
-    },
+    // Episode Upload Schedule (can have multiple days)
+    episodeUploadDays: [{
+      day: {
+        type: String,
+        enum: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+      },
+      time: String, // Format: "18:00" (24-hour)
+    }],
+    
+    // Trailer Upload Schedule (can have multiple days)
+    trailerUploadDays: [{
+      day: {
+        type: String,
+        enum: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+      },
+      time: String, // Format: "12:00" (24-hour)
+    }],
     // Status
     status: {
       type: String,

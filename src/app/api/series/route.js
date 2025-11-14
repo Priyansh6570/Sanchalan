@@ -35,16 +35,14 @@ export async function POST(request) {
       description,
       channel,
       team,
-      episodeUploadDay,
-      episodeUploadTime,
-      trailerUploadDay,
-      trailerUploadTime,
+      episodeUploadDays,
+      trailerUploadDays,
       status,
     } = body
 
-    if (!name || !channel || !team) {
+    if (!name || !channel) {
       return NextResponse.json(
-        { success: false, error: 'Name, Channel, and Team are required' },
+        { success: false, error: 'Name and Channel are required' },
         { status: 400 }
       )
     }
@@ -54,11 +52,9 @@ export async function POST(request) {
       name,
       description: description || '',
       channel,
-      team,
-      episodeUploadDay: episodeUploadDay || '',
-      episodeUploadTime: episodeUploadTime || '',
-      trailerUploadDay: trailerUploadDay || '',
-      trailerUploadTime: trailerUploadTime || '',
+      team: team || null,
+      episodeUploadDays: episodeUploadDays || [],
+      trailerUploadDays: trailerUploadDays || [],
       status: status || 'active',
     })
 

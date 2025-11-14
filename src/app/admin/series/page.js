@@ -1,94 +1,114 @@
 'use client'
 // src/app/admin/series/page.js
 import { useState, useEffect } from 'react'
-import { Film, RefreshCw, Plus, Check, X, Calendar, Clock } from 'lucide-react'
+import { Film, RefreshCw, Plus, Check, X, Calendar, Clock, Trash2 } from 'lucide-react'
 
 export default function SeriesAdminPage() {
-  const [series, setSeries] = useState([])
   const [channels, setChannels] = useState([])
   const [teams, setTeams] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [adding, setAdding] = useState(false)
+  const [series, setSeries] = useState([])
+  const [loading, setLoading] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   
   const [formData, setFormData] = useState({
-    name: '',
+    name: '', 
     description: '',
-    channel: '',
+    channel: '', 
     team: '',
-    episodeUploadDay: '',
-    episodeUploadTime: '',
-    trailerUploadDay: '',
-    trailerUploadTime: '',
     status: 'active',
   })
 
+  // Episode schedule (multiple days)
+  const [episodeSchedules, setEpisodeSchedules] = useState([
+    { day: '', time: '' }
+  ])
+
+  // Trailer schedule (multiple days)
+  const [trailerSchedules, setTrailerSchedules] = useState([
+    { day: '', time: '' }
+  ])
+
   const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
-  // Fetch all data
-  const fetchData = async () => {
+  const getAll = async () => {
     try {
-      setLoading(true)
-      const [seriesRes, channelsRes, teamsRes] = await Promise.all([
-        fetch('/api/series'),
-        fetch('/api/channels'),
-        fetch('/api/teams'),
+      const [c, t, s] = await Promise.all([
+        fetch('/api/channels').then(r => r.json()),
+        fetch('/api/teams').then(r => r.json()),
+        fetch('/api/series').then(r => r.json())
       ])
-
-      const [seriesData, channelsData, teamsData] = await Promise.all([
-        seriesRes.json(),
-        channelsRes.json(),
-        teamsRes.json(),
-      ])
-
-      if (seriesData.success) setSeries(seriesData.series)
-      if (channelsData.success) setChannels(channelsData.channels)
-      if (teamsData.success) setTeams(teamsData.teams)
+      setChannels(c.channels || [])
+      setTeams(t.teams || [])
+      setSeries(s.series || [])
     } catch (err) {
-      console.error('Error fetching data:', err)
-    } finally {
-      setLoading(false)
+      console.error('Error loading data:', err)
     }
   }
 
   useEffect(() => {
-    fetchData()
+    getAll()
   }, [])
 
-  // Handle form submit
+  const addEpisodeSchedule = () => {
+    setEpisodeSchedules([...episodeSchedules, { day: '', time: '' }])
+  }
+
+  const removeEpisodeSchedule = (index) => {
+    setEpisodeSchedules(episodeSchedules.filter((_, i) => i !== index))
+  }
+
+  const updateEpisodeSchedule = (index, field, value) => {
+    const updated = [...episodeSchedules]
+    updated[index][field] = value
+    setEpisodeSchedules(updated)
+  }
+
+  const addTrailerSchedule = () => {
+    setTrailerSchedules([...trailerSchedules, { day: '', time: '' }])
+  }
+
+  const removeTrailerSchedule = (index) => {
+    setTrailerSchedules(trailerSchedules.filter((_, i) => i !== index))
+  }
+
+  const updateTrailerSchedule = (index, field, value) => {
+    const updated = [...trailerSchedules]
+    updated[index][field] = value
+    setTrailerSchedules(updated)
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
+    setLoading(true)
     setError('')
     setSuccess('')
-    setAdding(true)
 
     try {
-      const response = await fetch('/api/series', {
+      // Filter out empty schedules
+      const validEpisodeSchedules = episodeSchedules.filter(s => s.day && s.time)
+      const validTrailerSchedules = trailerSchedules.filter(s => s.day && s.time)
+
+      const res = await fetch('/api/series', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          episodeUploadDays: validEpisodeSchedules,
+          trailerUploadDays: validTrailerSchedules,
+        })
       })
 
-      const data = await response.json()
+      const data = await res.json()
 
       if (data.success) {
         setSuccess('Series added successfully!')
-        setFormData({
-          name: '',
-          description: '',
-          channel: '',
-          team: '',
-          episodeUploadDay: '',
-          episodeUploadTime: '',
-          trailerUploadDay: '',
-          trailerUploadTime: '',
-          status: 'active',
-        })
+        setFormData({ name: '', description: '', channel: '', team: '', status: 'active' })
+        setEpisodeSchedules([{ day: '', time: '' }])
+        setTrailerSchedules([{ day: '', time: '' }])
         setShowForm(false)
-        fetchData()
-        
+        getAll()
         setTimeout(() => setSuccess(''), 3000)
       } else {
         setError(data.error || 'Failed to add series')
@@ -96,7 +116,7 @@ export default function SeriesAdminPage() {
     } catch (err) {
       setError('Network error. Please try again.')
     } finally {
-      setAdding(false)
+      setLoading(false)
     }
   }
 
@@ -117,7 +137,7 @@ export default function SeriesAdminPage() {
         </button>
       </div>
 
-      {/* Success/Error Messages */}
+      {/* Messages */}
       {success && (
         <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg flex items-center gap-2">
           <Check size={20} />
@@ -132,7 +152,7 @@ export default function SeriesAdminPage() {
         </div>
       )}
 
-      {/* Add Series Form */}
+      {/* Add Form */}
       {showForm && (
         <div className="bg-white rounded-xl shadow-sm border p-6">
           <h2 className="text-lg font-semibold mb-4">Add New Series</h2>
@@ -146,173 +166,156 @@ export default function SeriesAdminPage() {
               </p>
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Basic Info */}
               <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Series Name *
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="e.g., Historic Battles"
-                    required
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Status
-                  </label>
-                  <select
-                    value={formData.status}
-                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                  >
-                    <option value="active">Active</option>
-                    <option value="upcoming">Upcoming</option>
-                    <option value="completed">Completed</option>
-                    <option value="paused">Paused</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Description
-                </label>
-                <textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Brief description of the series..."
-                  rows={3}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                <input 
+                  className="border rounded-lg px-4 py-2" 
+                  placeholder="Series Name (e.g., Ganesh Series)"
+                  value={formData.name} 
+                  onChange={e => setFormData({ ...formData, name: e.target.value })} 
+                  required 
                 />
+                <select
+                  className="border rounded-lg px-4 py-2"
+                  value={formData.status}
+                  onChange={e => setFormData({ ...formData, status: e.target.value })}
+                >
+                  <option value="active">Active</option>
+                  <option value="upcoming">Upcoming</option>
+                  <option value="completed">Completed</option>
+                  <option value="paused">Paused</option>
+                </select>
               </div>
+
+              <textarea 
+                className="w-full border rounded-lg px-4 py-2" 
+                placeholder="Description"
+                rows={3}
+                value={formData.description} 
+                onChange={e => setFormData({ ...formData, description: e.target.value })} 
+              />
 
               <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Channel *
-                  </label>
-                  <select
-                    value={formData.channel}
-                    onChange={(e) => setFormData({ ...formData, channel: e.target.value })}
-                    required
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                  >
-                    <option value="">Select Channel</option>
-                    {channels.map((channel) => (
-                      <option key={channel._id} value={channel._id}>
-                        {channel.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <select
+                  className="border rounded-lg px-4 py-2"
+                  value={formData.channel}
+                  onChange={e => setFormData({ ...formData, channel: e.target.value })}
+                  required
+                >
+                  <option value="">Select Channel</option>
+                  {channels.map(c => (
+                    <option key={c._id} value={c._id}>{c.name}</option>
+                  ))}
+                </select>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Team *
-                  </label>
-                  <select
-                    value={formData.team}
-                    onChange={(e) => setFormData({ ...formData, team: e.target.value })}
-                    required
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                  >
-                    <option value="">Select Team</option>
-                    {teams.map((team) => (
-                      <option key={team._id} value={team._id}>
-                        {team.name} (Lead: {team.lead})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <select 
+                  className="border rounded-lg px-4 py-2" 
+                  value={formData.team}
+                  onChange={e => setFormData({ ...formData, team: e.target.value })}
+                >
+                  <option value="">Select Team (Optional)</option>
+                  {teams.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
+                </select>
               </div>
 
-              {/* Episode Schedule */}
+              {/* Episode Schedules */}
               <div className="border-t pt-4">
-                <h3 className="font-medium text-gray-900 mb-3">Episode Upload Schedule</h3>
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Day
-                    </label>
-                    <select
-                      value={formData.episodeUploadDay}
-                      onChange={(e) => setFormData({ ...formData, episodeUploadDay: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                    >
-                      <option value="">Select Day</option>
-                      {daysOfWeek.map((day) => (
-                        <option key={day} value={day}>{day}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Time
-                    </label>
-                    <input
-                      type="time"
-                      value={formData.episodeUploadTime}
-                      onChange={(e) => setFormData({ ...formData, episodeUploadTime: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                    />
-                  </div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-medium text-gray-900">Episode Upload Schedule</h3>
+                  <button
+                    type="button"
+                    onClick={addEpisodeSchedule}
+                    className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                  >
+                    <Plus size={16} />
+                    Add Another Day
+                  </button>
                 </div>
+                <div className="space-y-2">
+                  {episodeSchedules.map((schedule, index) => (
+                    <div key={index} className="flex gap-2">
+                      <select 
+                        className="flex-1 border rounded-lg px-3 py-2"
+                        value={schedule.day}
+                        onChange={e => updateEpisodeSchedule(index, 'day', e.target.value)}
+                      >
+                        <option value="">Select Day</option>
+                        {daysOfWeek.map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                      <input 
+                        type="time" 
+                        className="flex-1 border rounded-lg px-3 py-2"
+                        value={schedule.time}
+                        onChange={e => updateEpisodeSchedule(index, 'time', e.target.value)}
+                      />
+                      {episodeSchedules.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeEpisodeSchedule(index)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                        >
+                          <Trash2 size={20} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Example: Ganesh Series uploads on Monday at 18:00 and Friday at 18:00
+                </p>
               </div>
 
-              {/* Trailer Schedule */}
+              {/* Trailer Schedules */}
               <div className="border-t pt-4">
-                <h3 className="font-medium text-gray-900 mb-3">Trailer Upload Schedule (Optional)</h3>
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Day
-                    </label>
-                    <select
-                      value={formData.trailerUploadDay}
-                      onChange={(e) => setFormData({ ...formData, trailerUploadDay: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                    >
-                      <option value="">Select Day</option>
-                      {daysOfWeek.map((day) => (
-                        <option key={day} value={day}>{day}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Time
-                    </label>
-                    <input
-                      type="time"
-                      value={formData.trailerUploadTime}
-                      onChange={(e) => setFormData({ ...formData, trailerUploadTime: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                    />
-                  </div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-medium text-gray-900">Trailer Upload Schedule (Optional)</h3>
+                  <button
+                    type="button"
+                    onClick={addTrailerSchedule}
+                    className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                  >
+                    <Plus size={16} />
+                    Add Another Day
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {trailerSchedules.map((schedule, index) => (
+                    <div key={index} className="flex gap-2">
+                      <select 
+                        className="flex-1 border rounded-lg px-3 py-2"
+                        value={schedule.day}
+                        onChange={e => updateTrailerSchedule(index, 'day', e.target.value)}
+                      >
+                        <option value="">Select Day</option>
+                        {daysOfWeek.map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                      <input 
+                        type="time" 
+                        className="flex-1 border rounded-lg px-3 py-2"
+                        value={schedule.time}
+                        onChange={e => updateTrailerSchedule(index, 'time', e.target.value)}
+                      />
+                      {trailerSchedules.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeTrailerSchedule(index)}
+                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                        >
+                          <Trash2 size={20} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
 
-              <button
-                type="submit"
-                disabled={adding}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              <button 
+                type="submit" 
+                disabled={loading}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50 col-span-2"
               >
-                {adding ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <RefreshCw size={20} className="animate-spin" />
-                    Adding Series...
-                  </span>
-                ) : (
-                  'Add Series'
-                )}
+                {loading ? 'Adding...' : 'Add Series'}
               </button>
             </form>
           )}
@@ -325,16 +328,10 @@ export default function SeriesAdminPage() {
           <h2 className="text-lg font-semibold">Existing Series</h2>
         </div>
 
-        {loading ? (
-          <div className="p-12 text-center text-gray-500">
-            <RefreshCw size={32} className="animate-spin mx-auto mb-4" />
-            Loading series...
-          </div>
-        ) : series.length === 0 ? (
+        {series.length === 0 ? (
           <div className="p-12 text-center">
             <Film size={48} className="mx-auto text-gray-400 mb-4" />
             <p className="text-gray-600 mb-2">No series added yet</p>
-            <p className="text-sm text-gray-500">Click "Add Series" to get started</p>
           </div>
         ) : (
           <div className="divide-y">
@@ -364,33 +361,37 @@ export default function SeriesAdminPage() {
                   </div>
                   <div>
                     <p className="text-gray-500 mb-1">Team</p>
-                    <p className="font-medium">{item.team?.name}</p>
+                    <p className="font-medium">{item.team?.name || 'Not assigned'}</p>
                   </div>
                   <div>
                     <p className="text-gray-500 mb-1">Episode Schedule</p>
-                    <p className="font-medium">
-                      {item.episodeUploadDay && item.episodeUploadTime ? (
-                        <span className="flex items-center gap-1">
-                          <Calendar size={14} />
-                          {item.episodeUploadDay} {item.episodeUploadTime}
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">Not set</span>
-                      )}
-                    </p>
+                    {item.episodeUploadDays && item.episodeUploadDays.length > 0 ? (
+                      <div className="space-y-1">
+                        {item.episodeUploadDays.map((schedule, idx) => (
+                          <p key={idx} className="font-medium flex items-center gap-1">
+                            <Calendar size={14} />
+                            {schedule.day} {schedule.time}
+                          </p>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-gray-400">Not set</p>
+                    )}
                   </div>
                   <div>
                     <p className="text-gray-500 mb-1">Trailer Schedule</p>
-                    <p className="font-medium">
-                      {item.trailerUploadDay && item.trailerUploadTime ? (
-                        <span className="flex items-center gap-1">
-                          <Clock size={14} />
-                          {item.trailerUploadDay} {item.trailerUploadTime}
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">Not set</span>
-                      )}
-                    </p>
+                    {item.trailerUploadDays && item.trailerUploadDays.length > 0 ? (
+                      <div className="space-y-1">
+                        {item.trailerUploadDays.map((schedule, idx) => (
+                          <p key={idx} className="font-medium flex items-center gap-1">
+                            <Clock size={14} />
+                            {schedule.day} {schedule.time}
+                          </p>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-gray-400">Not set</p>
+                    )}
                   </div>
                 </div>
               </div>

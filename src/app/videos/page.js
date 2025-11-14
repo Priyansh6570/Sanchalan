@@ -1,370 +1,74 @@
 'use client'
-// src/app/videos/page.js
 import { useState, useEffect } from 'react'
-import { 
-  Video, RefreshCw, Plus, Check, X, Search, 
-  TrendingUp, ThumbsUp, MessageCircle, Calendar,
-  Eye, Play, Edit2
-} from 'lucide-react'
-import { formatNumber, formatDate, getStatusColor } from '@/lib/utils'
+import { motion, AnimatePresence } from 'framer-motion'
 
 export default function VideosPage() {
   const [videos, setVideos] = useState([])
-  const [channels, setChannels] = useState([])
-  const [series, setSeries] = useState([])
+  const [filter, setFilter] = useState('all')
+  const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
-  const [adding, setAdding] = useState(false)
-  const [showForm, setShowForm] = useState(false)
-  const [searchTerm, setSearchTerm] = useState('')
-  const [filterStatus, setFilterStatus] = useState('all')
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
-  const [editingVideo, setEditingVideo] = useState(null)
-  
-  const [formData, setFormData] = useState({
-    videoUrl: '',
-    channel: '',
-    series: '',
-    expectedUploadDate: '',
-    subtitleCount: 0,
-    adStatus: 'not-set',
-    seoNotes: '',
-  })
+  const [showAddModal, setShowAddModal] = useState(false)
 
-  // Fetch all data
-  const fetchData = async () => {
+  const fetchVideos = async () => {
+    setLoading(true)
     try {
-      setLoading(true)
-      const [videosRes, channelsRes, seriesRes] = await Promise.all([
-        fetch('/api/videos'),
-        fetch('/api/channels'),
-        fetch('/api/series'),
-      ])
-
-      const [videosData, channelsData, seriesData] = await Promise.all([
-        videosRes.json(),
-        channelsRes.json(),
-        seriesRes.json(),
-      ])
-
-      if (videosData.success) setVideos(videosData.videos)
-      if (channelsData.success) setChannels(channelsData.channels)
-      if (seriesData.success) setSeries(seriesData.series)
-    } catch (err) {
-      console.error('Error fetching data:', err)
-    } finally {
-      setLoading(false)
+      const response = await fetch('/api/videos')
+      const data = await response.json()
+      setVideos(data.videos || [])
+    } catch (error) {
+      console.error('Error fetching videos:', error)
     }
+    setLoading(false)
   }
 
   useEffect(() => {
-    fetchData()
+    fetchVideos()
   }, [])
 
-  // Handle form submit
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    setError('')
-    setSuccess('')
-    setAdding(true)
-
-    try {
-      const response = await fetch('/api/videos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        setSuccess('Video added successfully!')
-        setFormData({
-          videoUrl: '',
-          channel: '',
-          series: '',
-          expectedUploadDate: '',
-          subtitleCount: 0,
-          adStatus: 'not-set',
-          seoNotes: '',
-        })
-        setShowForm(false)
-        fetchData()
-        
-        setTimeout(() => setSuccess(''), 3000)
-      } else {
-        setError(data.error || 'Failed to add video')
-      }
-    } catch (err) {
-      setError('Network error. Please try again.')
-    } finally {
-      setAdding(false)
-    }
-  }
-
-  // Handle edit video
-  const handleUpdateVideo = async (videoId, updates) => {
-    try {
-      const response = await fetch(`/api/videos/${videoId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        setSuccess('Video updated!')
-        fetchData()
-        setEditingVideo(null)
-        setTimeout(() => setSuccess(''), 2000)
-      }
-    } catch (err) {
-      setError('Failed to update video')
-    }
-  }
-
-  // Handle refresh stats
-  const handleRefreshStats = async (videoId) => {
-    try {
-      const response = await fetch(`/api/videos/${videoId}`, {
-        method: 'GET',
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        setSuccess('Stats refreshed from YouTube!')
-        fetchData()
-        setTimeout(() => setSuccess(''), 2000)
-      }
-    } catch (err) {
-      setError('Failed to refresh stats')
-    }
-  }
-
-  // Filter videos
-  const filteredVideos = videos.filter(video => {
-    const matchesSearch = video.title.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus = filterStatus === 'all' || video.status === filterStatus
-    return matchesSearch && matchesStatus
+  const filteredVideos = videos.filter(v => {
+    const matchesFilter = filter === 'all' || v.status === filter
+    const matchesSearch = v.title?.toLowerCase().includes(search.toLowerCase())
+    return matchesFilter && matchesSearch
   })
 
-  // Stats
   const stats = {
     total: videos.length,
     uploaded: videos.filter(v => v.status === 'uploaded').length,
     scheduled: videos.filter(v => v.status === 'scheduled').length,
     delayed: videos.filter(v => v.status === 'delayed').length,
-    totalViews: videos.reduce((sum, v) => sum + (v.viewCount || 0), 0),
+    totalViews: videos.reduce((sum, v) => sum + (v.viewCount || 0), 0)
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-gray-500 text-lg">Loading videos...</div>
+      </div>
+    )
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Videos Management</h1>
-          <p className="text-gray-600 mt-1">Track and manage all your YouTube videos</p>
-        </div>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
-        >
-          {showForm ? <X size={20} /> : <Plus size={20} />}
-          {showForm ? 'Cancel' : 'Add Video'}
-        </button>
-      </div>
-
-      {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <StatCard label="Total Videos" value={stats.total} icon={Video} color="blue" />
-        <StatCard label="Uploaded" value={stats.uploaded} icon={Check} color="green" />
-        <StatCard label="Scheduled" value={stats.scheduled} icon={Calendar} color="yellow" />
-        <StatCard label="Delayed" value={stats.delayed} icon={X} color="red" />
-        <StatCard label="Total Views" value={formatNumber(stats.totalViews)} icon={TrendingUp} color="purple" />
+        <StatCard label="Total Videos" value={stats.total} color="blue" />
+        <StatCard label="Uploaded" value={stats.uploaded} color="green" />
+        <StatCard label="Scheduled" value={stats.scheduled} color="yellow" />
+        <StatCard label="Delayed" value={stats.delayed} color="red" />
+        <StatCard label="Total Views" value={stats.totalViews.toLocaleString()} color="purple" />
       </div>
 
-      {/* Messages */}
-      {success && (
-        <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg flex items-center gap-2">
-          <Check size={20} />
-          {success}
-        </div>
-      )}
-
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg flex items-center gap-2">
-          <X size={20} />
-          {error}
-        </div>
-      )}
-
-      {/* Add Video Form */}
-      {showForm && (
-        <div className="bg-white rounded-xl shadow-sm border p-6">
-          <h2 className="text-lg font-semibold mb-4">Add New Video</h2>
-          
-          {channels.length === 0 || series.length === 0 ? (
-            <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg">
-              <p className="font-medium">Setup Required</p>
-              <p className="text-sm mt-1">
-                Please add at least one channel and series first.
-              </p>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  YouTube Video URL *
-                </label>
-                <input
-                  type="text"
-                  value={formData.videoUrl}
-                  onChange={(e) => setFormData({ ...formData, videoUrl: e.target.value })}
-                  placeholder="https://www.youtube.com/watch?v=..."
-                  required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Paste the full YouTube video URL. We'll automatically fetch title, views, likes, etc.
-                </p>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Channel *
-                  </label>
-                  <select
-                    value={formData.channel}
-                    onChange={(e) => setFormData({ ...formData, channel: e.target.value })}
-                    required
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                  >
-                    <option value="">Select Channel</option>
-                    {channels.map((channel) => (
-                      <option key={channel._id} value={channel._id}>
-                        {channel.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Series *
-                  </label>
-                  <select
-                    value={formData.series}
-                    onChange={(e) => setFormData({ ...formData, series: e.target.value })}
-                    required
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                  >
-                    <option value="">Select Series</option>
-                    {series.map((s) => (
-                      <option key={s._id} value={s._id}>
-                        {s.name} ({s.team?.name})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Subtitle Count (0-100)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={formData.subtitleCount}
-                    onChange={(e) => setFormData({ ...formData, subtitleCount: parseInt(e.target.value) })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Ad Status
-                  </label>
-                  <select
-                    value={formData.adStatus}
-                    onChange={(e) => setFormData({ ...formData, adStatus: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                  >
-                    <option value="not-set">Not Set</option>
-                    <option value="running">Running</option>
-                    <option value="stopped">Stopped</option>
-                    <option value="pending">Pending</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Expected Upload Date
-                  </label>
-                  <input
-                    type="date"
-                    value={formData.expectedUploadDate}
-                    onChange={(e) => setFormData({ ...formData, expectedUploadDate: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  SEO Notes (Optional)
-                </label>
-                <textarea
-                  value={formData.seoNotes}
-                  onChange={(e) => setFormData({ ...formData, seoNotes: e.target.value })}
-                  placeholder="Notes about SEO, tags, optimization..."
-                  rows={3}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={adding}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {adding ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <RefreshCw size={20} className="animate-spin" />
-                    Adding Video...
-                  </span>
-                ) : (
-                  'Add Video'
-                )}
-              </button>
-            </form>
-          )}
-        </div>
-      )}
-
-      {/* Filters */}
-      <div className="bg-white rounded-xl shadow-sm border p-4 flex flex-wrap gap-4">
-        <div className="flex-1 min-w-[200px]">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-            <input
-              type="text"
-              placeholder="Search videos..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-            />
-          </div>
-        </div>
+      <div className="bg-white rounded-2xl shadow-sm p-4 flex flex-wrap gap-3">
+        <input
+          type="text"
+          placeholder="Search videos..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="border rounded-lg px-4 py-2 flex-1 min-w-[200px]"
+        />
         <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-          className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className="border rounded-lg px-4 py-2"
         >
           <option value="all">All Status</option>
           <option value="uploaded">Uploaded</option>
@@ -372,247 +76,402 @@ export default function VideosPage() {
           <option value="delayed">Delayed</option>
         </select>
         <button
-          onClick={fetchData}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+          onClick={fetchVideos}
+          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
         >
-          <RefreshCw size={20} />
-          Refresh
+          🔄 Refresh
+        </button>
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 font-medium transition-colors"
+        >
+          ➕ Add Video
         </button>
       </div>
 
-      {/* Videos List */}
-      <div className="bg-white rounded-xl shadow-sm border">
-        {loading ? (
-          <div className="p-12 text-center text-gray-500">
-            <RefreshCw size={32} className="animate-spin mx-auto mb-4" />
-            Loading videos...
-          </div>
-        ) : filteredVideos.length === 0 ? (
-          <div className="p-12 text-center">
-            <Video size={48} className="mx-auto text-gray-400 mb-4" />
-            <p className="text-gray-600 mb-2">
-              {searchTerm || filterStatus !== 'all' ? 'No videos match your filters' : 'No videos added yet'}
-            </p>
-            <p className="text-sm text-gray-500">
-              {searchTerm || filterStatus !== 'all' ? 'Try adjusting your search or filters' : 'Click "Add Video" to get started'}
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y">
-            {filteredVideos.map((video) => (
-              <VideoCard 
-                key={video._id} 
-                video={video} 
-                onUpdate={handleUpdateVideo}
-                onRefresh={handleRefreshStats}
-                editing={editingVideo === video._id}
-                setEditing={setEditingVideo}
-              />
-            ))}
-          </div>
-        )}
+      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {filteredVideos.map((video, i) => (
+          <VideoCard key={video._id} video={video} delay={i * 0.05} />
+        ))}
       </div>
+
+      {filteredVideos.length === 0 && (
+        <div className="bg-white rounded-2xl shadow-sm p-12 text-center">
+          <p className="text-gray-500 text-lg">No videos found</p>
+          <p className="text-gray-400 text-sm mt-2">Try adjusting your filters</p>
+        </div>
+      )}
+
+      <AddVideoModal 
+        isOpen={showAddModal} 
+        onClose={() => setShowAddModal(false)}
+        onSuccess={() => {
+          setShowAddModal(false)
+          fetchVideos()
+        }}
+      />
     </div>
   )
 }
 
-function StatCard({ label, value, icon: Icon, color }) {
+function StatCard({ label, value, color }) {
   const colors = {
-    blue: 'bg-blue-50 text-blue-600 border-blue-200',
-    green: 'bg-green-50 text-green-600 border-green-200',
-    yellow: 'bg-yellow-50 text-yellow-600 border-yellow-200',
-    red: 'bg-red-50 text-red-600 border-red-200',
-    purple: 'bg-purple-50 text-purple-600 border-purple-200',
+    blue: 'border-blue-500 bg-blue-50',
+    green: 'border-green-500 bg-green-50',
+    yellow: 'border-yellow-500 bg-yellow-50',
+    red: 'border-red-500 bg-red-50',
+    purple: 'border-purple-500 bg-purple-50'
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border p-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm text-gray-600 mb-1">{label}</p>
-          <p className="text-2xl font-bold">{value}</p>
-        </div>
-        <div className={`p-3 rounded-lg ${colors[color]}`}>
-          <Icon size={20} />
-        </div>
-      </div>
+    <div className={`rounded-xl p-4 border-l-4 ${colors[color]} shadow-sm`}>
+      <p className="text-sm text-gray-600">{label}</p>
+      <p className="text-2xl font-bold mt-1">{value}</p>
     </div>
   )
 }
 
-function VideoCard({ video, onUpdate, onRefresh, editing, setEditing }) {
-  const [editData, setEditData] = useState({
-    subtitleCount: video.subtitleCount,
-    adStatus: video.adStatus,
-    status: video.status,
-    seoNotes: video.seoNotes,
-  })
+function VideoCard({ video, delay }) {
+  const statusColors = {
+    uploaded: 'bg-green-100 text-green-800',
+    scheduled: 'bg-yellow-100 text-yellow-800',
+    delayed: 'bg-red-100 text-red-800'
+  }
 
-  const statusColor = getStatusColor(video.status)
+  const adStatusColors = {
+    running: 'bg-blue-100 text-blue-800',
+    stopped: 'bg-gray-100 text-gray-800',
+    pending: 'bg-orange-100 text-orange-800',
+    'not-set': 'bg-gray-100 text-gray-600'
+  }
 
   return (
-    <div className="p-6 hover:bg-gray-50 transition-colors">
-      <div className="flex gap-4">
-        {/* Thumbnail */}
-        {video.thumbnailUrl && (
-          <a 
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay }}
+      className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow p-5 space-y-3"
+    >
+      <div className="flex justify-between items-start gap-2">
+        <h3 className="font-semibold text-lg line-clamp-2">{video.title}</h3>
+        <span className={`px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap ${statusColors[video.status]}`}>
+          {video.status}
+        </span>
+      </div>
+
+      <div className="space-y-2 text-sm text-gray-600">
+        <div className="flex justify-between">
+          <span>Series:</span>
+          <span className="font-medium">{video.series?.name || 'N/A'}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Channel:</span>
+          <span className="font-medium">{video.channel?.name || 'N/A'}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Views:</span>
+          <span className="font-bold text-green-600">{(video.viewCount || 0).toLocaleString()}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Likes:</span>
+          <span className="font-medium">{(video.likeCount || 0).toLocaleString()}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Subtitles:</span>
+          <span className="font-medium">{video.subtitleCount || 0} languages</span>
+        </div>
+        {video.adStatus && video.adStatus !== 'not-set' && (
+          <div className="flex justify-between items-center">
+            <span>Ads:</span>
+            <span className={`px-2 py-1 rounded-full text-xs ${adStatusColors[video.adStatus]}`}>
+              {video.adStatus}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="pt-3 border-t text-xs text-gray-500">
+        {video.publishedAt ? (
+          <>Published: {new Date(video.publishedAt).toLocaleDateString()}</>
+        ) : (
+          <>Expected: {video.expectedUploadDate ? new Date(video.expectedUploadDate).toLocaleDateString() : 'TBD'}</>
+        )}
+      </div>
+
+      {video.videoId && (
+        <div className="flex gap-2">
+          <a
+            href={`/analytics/${video._id}`}
+            className="flex-1 text-center bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm"
+          >
+            📊 Analytics
+          </a>
+          <a
             href={`https://youtube.com/watch?v=${video.videoId}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex-shrink-0"
+            className="flex-1 text-center bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition-colors text-sm"
           >
-            <img
-              src={video.thumbnailUrl}
-              alt={video.title}
-              className="w-40 h-24 object-cover rounded-lg hover:opacity-80 transition-opacity"
-            />
+            YouTube 🎥
           </a>
-        )}
+        </div>
+      )}
+    </motion.div>
+  )
+}
 
-        {/* Content */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-4 mb-2">
-            <div className="flex-1">
-              <h3 className="font-semibold text-lg text-gray-900 mb-1">
-                {video.title}
-              </h3>
-              <div className="flex flex-wrap gap-3 text-sm text-gray-600">
-                <span>Series: <strong>{video.series?.name}</strong></span>
-                <span>•</span>
-                <span>Team: <strong>{video.series?.team?.name}</strong></span>
-                <span>•</span>
-                <span>Channel: <strong>{video.channel?.name}</strong></span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColor.bg} ${statusColor.text}`}>
-                {video.status}
-              </span>
+function AddVideoModal({ isOpen, onClose, onSuccess }) {
+  const [step, setStep] = useState(1)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  
+  const [videoUrl, setVideoUrl] = useState('')
+  const [channels, setChannels] = useState([])
+  const [series, setSeries] = useState([])
+  
+  const [formData, setFormData] = useState({
+    channel: '',
+    series: '',
+    expectedUploadDate: '',
+    subtitleCount: 0,
+    adStatus: 'not-set',
+    seoNotes: ''
+  })
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchChannelsAndSeries()
+    }
+  }, [isOpen])
+
+  const fetchChannelsAndSeries = async () => {
+    try {
+      const [channelsRes, seriesRes] = await Promise.all([
+        fetch('/api/channels').then(r => r.json()),
+        fetch('/api/series').then(r => r.json())
+      ])
+      setChannels(channelsRes.channels || [])
+      setSeries(seriesRes.series || [])
+    } catch (error) {
+      console.error('Error fetching channels/series:', error)
+    }
+  }
+
+  const handleSubmit = async () => {
+    if (!videoUrl.trim()) {
+      setError('Please enter a YouTube URL')
+      return
+    }
+
+    if (!formData.channel || !formData.series) {
+      setError('Please select both channel and series')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+
+    try {
+      const response = await fetch('/api/videos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          videoUrl,
+          ...formData
+        })
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        onSuccess()
+        resetForm()
+      } else {
+        setError(data.error || 'Failed to add video')
+      }
+    } catch (error) {
+      console.error('Error adding video:', error)
+      setError('Failed to add video. Please try again.')
+    }
+
+    setLoading(false)
+  }
+
+  const resetForm = () => {
+    setStep(1)
+    setVideoUrl('')
+    setFormData({
+      channel: '',
+      series: '',
+      expectedUploadDate: '',
+      subtitleCount: 0,
+      adStatus: 'not-set',
+      seoNotes: ''
+    })
+    setError('')
+  }
+
+  const handleClose = () => {
+    resetForm()
+    onClose()
+  }
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+          >
+            <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center rounded-t-2xl">
+              <h2 className="text-2xl font-bold">Add New Video</h2>
               <button
-                onClick={() => setEditing(editing ? null : video._id)}
-                className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
+                onClick={handleClose}
+                className="text-gray-500 hover:text-gray-700 text-3xl leading-none"
               >
-                <Edit2 size={16} />
+                ×
               </button>
             </div>
-          </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-4 gap-4 mb-3">
-            <div className="flex items-center gap-2 text-sm">
-              <Eye size={16} className="text-gray-400" />
-              <span><strong>{formatNumber(video.viewCount)}</strong> views</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-              <ThumbsUp size={16} className="text-gray-400" />
-              <span><strong>{formatNumber(video.likeCount)}</strong> likes</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-              <MessageCircle size={16} className="text-gray-400" />
-              <span><strong>{formatNumber(video.commentCount)}</strong> comments</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-              <Calendar size={16} className="text-gray-400" />
-              <span>{formatDate(video.publishedAt)}</span>
-            </div>
-          </div>
+            <div className="p-6 space-y-6">
+              {error && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+                  {error}
+                </div>
+              )}
 
-          {/* Edit Mode */}
-          {editing ? (
-            <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-              <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
-                    Subtitles (0-100)
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    YouTube Video URL *
                   </label>
                   <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={editData.subtitleCount}
-                    onChange={(e) => setEditData({ ...editData, subtitleCount: parseInt(e.target.value) })}
-                    className="w-full px-3 py-1 text-sm border rounded"
+                    type="text"
+                    value={videoUrl}
+                    onChange={(e) => setVideoUrl(e.target.value)}
+                    placeholder="https://youtube.com/watch?v=..."
+                    className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                  />
+                  <p className="text-sm text-gray-500 mt-1">
+                    The video details will be automatically fetched from YouTube
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Channel *
+                    </label>
+                    <select
+                      value={formData.channel}
+                      onChange={(e) => setFormData({ ...formData, channel: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                    >
+                      <option value="">Select Channel</option>
+                      {channels.map(channel => (
+                        <option key={channel._id} value={channel._id}>
+                          {channel.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Series *
+                    </label>
+                    <select
+                      value={formData.series}
+                      onChange={(e) => setFormData({ ...formData, series: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                    >
+                      <option value="">Select Series</option>
+                      {series.map(s => (
+                        <option key={s._id} value={s._id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Ad Status
+                    </label>
+                    <select
+                      value={formData.adStatus}
+                      onChange={(e) => setFormData({ ...formData, adStatus: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                    >
+                      <option value="not-set">Not Set</option>
+                      <option value="running">Running</option>
+                      <option value="stopped">Stopped</option>
+                      <option value="pending">Pending</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Expected Upload Date
+                    </label>
+                    <input
+                      type="date"
+                      value={formData.expectedUploadDate}
+                      onChange={(e) => setFormData({ ...formData, expectedUploadDate: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Optional - for tracking delays</p>
+                  </div>
+                </div>
+
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <span className="text-2xl">ℹ️</span>
+                    <div>
+                      <p className="text-sm font-medium text-blue-900">Automatic Subtitle Detection</p>
+                      <p className="text-xs text-blue-700 mt-1">
+                        Subtitle count will be automatically fetched from YouTube when you add the video. No manual entry needed!
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    SEO Notes
+                  </label>
+                  <textarea
+                    value={formData.seoNotes}
+                    onChange={(e) => setFormData({ ...formData, seoNotes: e.target.value })}
+                    rows={3}
+                    placeholder="Add any SEO-related notes or optimizations..."
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 outline-none resize-none"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
-                    Ad Status
-                  </label>
-                  <select
-                    value={editData.adStatus}
-                    onChange={(e) => setEditData({ ...editData, adStatus: e.target.value })}
-                    className="w-full px-3 py-1 text-sm border rounded"
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    onClick={handleClose}
+                    className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-lg hover:bg-gray-300 font-medium transition-colors"
                   >
-                    <option value="not-set">Not Set</option>
-                    <option value="running">Running</option>
-                    <option value="stopped">Stopped</option>
-                    <option value="pending">Pending</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
-                    Status
-                  </label>
-                  <select
-                    value={editData.status}
-                    onChange={(e) => setEditData({ ...editData, status: e.target.value })}
-                    className="w-full px-3 py-1 text-sm border rounded"
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSubmit}
+                    disabled={loading}
+                    className="flex-1 bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium transition-colors"
                   >
-                    <option value="uploaded">Uploaded</option>
-                    <option value="scheduled">Scheduled</option>
-                    <option value="delayed">Delayed</option>
-                  </select>
+                    {loading ? 'Adding Video...' : 'Add Video'}
+                  </button>
                 </div>
               </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    onUpdate(video._id, editData)
-                  }}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
-                >
-                  Save Changes
-                </button>
-                <button
-                  onClick={() => setEditing(null)}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => onRefresh(video._id)}
-                  className="ml-auto px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm flex items-center gap-2"
-                >
-                  <RefreshCw size={16} />
-                  Refresh from YouTube
-                </button>
-              </div>
             </div>
-          ) : (
-            <div className="flex items-center gap-4 text-sm">
-              <span>Subtitles: <strong>{video.subtitleCount}/100</strong></span>
-              <span>•</span>
-              <span>Ads: <strong className={
-                video.adStatus === 'running' ? 'text-green-600' :
-                video.adStatus === 'stopped' ? 'text-red-600' :
-                video.adStatus === 'pending' ? 'text-yellow-600' :
-                'text-gray-500'
-              }>{video.adStatus}</strong></span>
-              <span>•</span>
-              <span className="text-gray-500">Synced: {formatDate(video.lastSyncedAt, true)}</span>
-              <a
-                href={`https://youtube.com/watch?v=${video.videoId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="ml-auto flex items-center gap-1 text-blue-600 hover:text-blue-700"
-              >
-                <Play size={16} />
-                Watch on YouTube
-              </a>
-            </div>
-          )}
+          </motion.div>
         </div>
-      </div>
-    </div>
+      )}
+    </AnimatePresence>
   )
 }

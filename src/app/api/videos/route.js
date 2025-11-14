@@ -43,7 +43,6 @@ export async function POST(request) {
       channel, 
       series,
       expectedUploadDate,
-      subtitleCount,
       adStatus,
       seoNotes 
     } = body
@@ -73,7 +72,7 @@ export async function POST(request) {
       )
     }
 
-    // Fetch video details from YouTube
+    // Fetch video details from YouTube (now includes subtitle count)
     const youtubeData = await fetchVideoDetails(videoId)
 
     // Determine status based on publish date
@@ -90,7 +89,7 @@ export async function POST(request) {
       }
     }
 
-    // Create video
+    // Create video with auto-fetched subtitle count
     const video = await Video.create({
       videoId,
       title: youtubeData.title,
@@ -103,7 +102,10 @@ export async function POST(request) {
       viewCount: youtubeData.viewCount,
       likeCount: youtubeData.likeCount,
       commentCount: youtubeData.commentCount,
-      subtitleCount: subtitleCount || 0,
+      // Auto-fetched subtitle data
+      subtitleCount: youtubeData.subtitleCount || 0,
+      subtitles: youtubeData.subtitles || { count: 0, languages: [], lastSynced: new Date() },
+      // User-provided data
       adStatus: adStatus || 'not-set',
       seoNotes: seoNotes || '',
       expectedUploadDate: expectedUploadDate || null,
@@ -125,7 +127,7 @@ export async function POST(request) {
     return NextResponse.json({
       success: true,
       video,
-      message: 'Video added successfully',
+      message: `Video added successfully with ${youtubeData.subtitleCount || 0} subtitle(s) detected`,
     })
   } catch (error) {
     console.error('Error adding video:', error)
