@@ -1,5 +1,6 @@
 // src/lib/youtube/api.js
 import axios from 'axios'
+import { getValidAccessToken } from './oauth'
 
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY
 const YOUTUBE_API_BASE = 'https://www.googleapis.com/youtube/v3'
@@ -30,16 +31,27 @@ export function extractVideoId(url) {
 /**
  * Fetch video captions/subtitles count
  * @param {string} videoId - YouTube video ID
+ * @param {string} accessToken - Optional OAuth access token
  * @returns {Promise<Object>} Captions data with count and languages
  */
-export async function fetchVideoCaptions(videoId) {
+export async function fetchVideoCaptions(videoId, accessToken = null) {
   try {
+    const headers = accessToken 
+      ? { Authorization: `Bearer ${accessToken}` }
+      : {}
+    
+    const params = {
+      part: 'snippet',
+      videoId: videoId,
+    }
+    
+    if (!accessToken) {
+      params.key = YOUTUBE_API_KEY
+    }
+
     const response = await axios.get(`${YOUTUBE_API_BASE}/captions`, {
-      params: {
-        part: 'snippet',
-        videoId: videoId,
-        key: YOUTUBE_API_KEY,
-      },
+      params,
+      headers,
     })
 
     const items = response.data.items || []
@@ -55,8 +67,7 @@ export async function fetchVideoCaptions(videoId) {
       lastSynced: new Date()
     }
   } catch (error) {
-    // Captions API often requires OAuth, so if it fails, return 0
-    console.warn('Could not fetch captions (may require OAuth):', error.message)
+    console.warn('Could not fetch captions:', error.message)
     return {
       count: 0,
       languages: [],
@@ -68,26 +79,57 @@ export async function fetchVideoCaptions(videoId) {
 /**
  * Fetch video details from YouTube API including subtitles
  * @param {string} videoId - YouTube video ID
+ * @param {Object} options - Options for fetching
+ * @param {boolean} options.useOAuth - If true, use OAuth token instead of API key
  * @returns {Promise<Object>} Video details with subtitle count
  */
-export async function fetchVideoDetails(videoId) {
+export async function fetchVideoDetails(videoId, options = {}) {
+  const { useOAuth = false } = options
+  
   try {
+    let headers = {}
+    let params = {
+      part: 'snippet,statistics,contentDetails,status',
+      id: videoId,
+    }
+
+    // Use OAuth if requested (for private/scheduled videos)
+    if (useOAuth) {
+      try {
+        const accessToken = await getValidAccessToken()
+        headers = { Authorization: `Bearer ${accessToken}` }
+        console.log('🔐 Using OAuth token to fetch video details')
+      } catch (authError) {
+        console.warn('⚠️ OAuth not available, falling back to API key')
+        params.key = YOUTUBE_API_KEY
+      }
+    } else {
+      params.key = YOUTUBE_API_KEY
+    }
+
     const response = await axios.get(`${YOUTUBE_API_BASE}/videos`, {
-      params: {
-        part: 'snippet,statistics,contentDetails',
-        id: videoId,
-        key: YOUTUBE_API_KEY,
-      },
+      params,
+      headers,
     })
 
     if (!response.data.items || response.data.items.length === 0) {
-      throw new Error('Video not found')
+      throw new Error('Video not found. The video might be private, scheduled, or the URL is incorrect.')
     }
 
     const video = response.data.items[0]
     
-    // Fetch captions/subtitles
-    const captionsData = await fetchVideoCaptions(videoId)
+    // Check video status
+    const privacyStatus = video.status?.privacyStatus
+    const uploadStatus = video.status?.uploadStatus
+    
+    console.log(`📹 Video status: ${privacyStatus}, Upload: ${uploadStatus}`)
+
+    // Fetch captions/subtitles (only for published videos)
+    let captionsData = { count: 0, languages: [], lastSynced: new Date() }
+    if (privacyStatus === 'public' || privacyStatus === 'unlisted') {
+      const captionToken = useOAuth ? headers.Authorization?.split(' ')[1] : null
+      captionsData = await fetchVideoCaptions(videoId, captionToken)
+    }
     
     return {
       videoId: video.id,
@@ -98,16 +140,31 @@ export async function fetchVideoDetails(videoId) {
       channelTitle: video.snippet.channelTitle,
       publishedAt: video.snippet.publishedAt,
       duration: video.contentDetails.duration,
-      viewCount: parseInt(video.statistics.viewCount || 0),
-      likeCount: parseInt(video.statistics.likeCount || 0),
-      commentCount: parseInt(video.statistics.commentCount || 0),
+      viewCount: parseInt(video.statistics?.viewCount || 0),
+      likeCount: parseInt(video.statistics?.likeCount || 0),
+      commentCount: parseInt(video.statistics?.commentCount || 0),
+      // Add video status info
+      privacyStatus: privacyStatus,
+      uploadStatus: uploadStatus,
+      isScheduled: privacyStatus === 'private' && video.status.publishAt,
+      scheduledPublishTime: video.status.publishAt || null,
       // Add subtitle information
       subtitles: captionsData,
       subtitleCount: captionsData.count,
     }
   } catch (error) {
     console.error('Error fetching video details:', error.message)
-    throw new Error(`Failed to fetch video details: ${error.message}`)
+    
+    // Provide more helpful error messages
+    if (error.response?.status === 403) {
+      throw new Error('Access denied. For private/scheduled videos, make sure YouTube is connected.')
+    } else if (error.response?.status === 404) {
+      throw new Error('Video not found. Please check if the video ID is correct.')
+    } else if (error.message.includes('not found')) {
+      throw new Error(error.message)
+    } else {
+      throw new Error(`Failed to fetch video details: ${error.message}`)
+    }
   }
 }
 

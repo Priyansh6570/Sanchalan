@@ -7,9 +7,11 @@ import { formatNumber } from '@/lib/utils'
 export default function PublicCalendarPage() {
   const [view, setView] = useState('week')
   const [currentDate, setCurrentDate] = useState(new Date())
-  const [selectedEvent, setSelectedEvent] = useState(null)
+  const [selectedDate, setSelectedDate] = useState(null)
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
+  const [selectedChannel, setSelectedChannel] = useState('all')
+  const [expandedEventId, setExpandedEventId] = useState(null)
 
   const fetchCalendar = async () => {
     try {
@@ -27,7 +29,6 @@ export default function PublicCalendarPage() {
 
   useEffect(() => {
     fetchCalendar()
-    // Auto-refresh every 30 seconds
     const interval = setInterval(fetchCalendar, 30000)
     return () => clearInterval(interval)
   }, [])
@@ -53,13 +54,9 @@ export default function PublicCalendarPage() {
     const startingDayOfWeek = firstDay.getDay()
     
     const days = []
-    
-    // Add empty slots for days before month starts
     for (let i = 0; i < startingDayOfWeek; i++) {
       days.push(null)
     }
-    
-    // Add all days in month
     for (let i = 1; i <= daysInMonth; i++) {
       days.push(new Date(year, month, i))
     }
@@ -72,8 +69,20 @@ export default function PublicCalendarPage() {
 
   const getEventsForDate = (date) => {
     if (!date) return []
-    const dateStr = date.toISOString().split('T')[0]
-    return events.filter(e => e.start?.split('T')[0] === dateStr)
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const dateStr = `${year}-${month}-${day}`
+    
+    return events.filter(e => {
+      if (!e.start) return false
+      const eventDate = e.start.split('T')[0]
+      return eventDate === dateStr
+    }).filter(e => {
+      if (selectedChannel === 'all') return true
+      const channelName = e.extendedProps?.channel?.name || e.channel
+      return channelName === selectedChannel
+    })
   }
 
   const getEventsForDay = (date) => {
@@ -123,7 +132,16 @@ export default function PublicCalendarPage() {
     return currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
   }
 
-  const hours = Array.from({ length: 24 }, (_, i) => i)
+  const getUniqueChannels = () => {
+    const channels = new Set()
+    events.forEach(event => {
+      const channelName = event.extendedProps?.channel?.name || event.channel
+      if (channelName) channels.add(channelName)
+    })
+    return Array.from(channels).sort()
+  }
+
+  const hours = [6, 7, 18, 19]
 
   const getEventTime = (event) => {
     if (event.time) return event.time
@@ -134,17 +152,18 @@ export default function PublicCalendarPage() {
     return '00:00'
   }
 
-  const getEventPosition = (event) => {
-    const time = getEventTime(event)
-    const [hour, minute] = time.split(':').map(Number)
-    return (hour * 60 + minute) / 1440 * 100
-  }
-
   const getSeriesColor = (event) => {
-    if (event.backgroundColor) return event.backgroundColor
+    const type = event.extendedProps?.type || event.type
+    if (type === 'planned-episode') return '#22c55e'
+    if (type === 'planned-trailer') return '#3b82f6'
+    
+    if (event.backgroundColor && !event.backgroundColor.includes('rgba')) {
+      return event.backgroundColor
+    }
+    
     if (event.seriesColor) return event.seriesColor
     
-    // Generate color based on series name
+    const seriesName = event.extendedProps?.series || event.series
     const seriesColors = {
       'Adventure Series': '#3b82f6',
       'Mystery Chronicles': '#8b5cf6',
@@ -154,13 +173,18 @@ export default function PublicCalendarPage() {
       'Science Show': '#06b6d4'
     }
     
-    if (event.series && seriesColors[event.series]) {
-      return seriesColors[event.series]
+    if (seriesName && seriesColors[seriesName]) {
+      return seriesColors[seriesName]
     }
     
-    // Default color based on type
-    if (event.type === 'planned-episode') return '#22c55e'
-    if (event.type === 'planned-trailer') return '#3b82f6'
+    if (seriesName) {
+      let hash = 0
+      for (let i = 0; i < seriesName.length; i++) {
+        hash = seriesName.charCodeAt(i) + ((hash << 5) - hash)
+      }
+      const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#10b981', '#f59e0b', '#06b6d4', '#ef4444', '#14b8a6']
+      return colors[Math.abs(hash) % colors.length]
+    }
     
     return '#6366f1'
   }
@@ -202,6 +226,20 @@ export default function PublicCalendarPage() {
           >
             {getMonthYear()}
           </motion.h1>
+
+          {/* Channel Filter */}
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedChannel}
+              onChange={(e) => setSelectedChannel(e.target.value)}
+              className="px-4 py-2 rounded-full bg-white shadow-lg border border-gray-200 font-medium text-gray-700 hover:border-gray-300 transition-all cursor-pointer"
+            >
+              <option value="all">All Channels</option>
+              {getUniqueChannels().map(channel => (
+                <option key={channel} value={channel}>{channel}</option>
+              ))}
+            </select>
+          </div>
 
           {/* View Toggle */}
           <div className="flex items-center gap-2 bg-white rounded-full p-1.5 shadow-lg border border-gray-200">
@@ -257,7 +295,7 @@ export default function PublicCalendarPage() {
           <motion.div 
             layout
             className={`bg-white rounded-3xl shadow-xl border border-gray-200 p-6 ${
-              selectedEvent ? 'flex-1' : 'w-full'
+              selectedDate && view === 'month' ? 'flex-1' : 'w-full'
             }`}
           >
             {view === 'week' && (
@@ -295,8 +333,8 @@ export default function PublicCalendarPage() {
                 {/* Time Grid */}
                 <div className="grid grid-cols-8 gap-3 relative">
                   {/* Hours Column */}
-                  <div className="space-y-16">
-                    {hours.filter(h => h >= 8 && h <= 20).map(hour => (
+                  <div className="space-y-[280px]">
+                    {hours.map(hour => (
                       <div key={hour} className="text-xs text-gray-400 text-right pr-2">
                         {hour === 0 ? '12 AM' : hour === 12 ? '12 PM' : hour > 12 ? `${hour - 12} PM` : `${hour} AM`}
                       </div>
@@ -307,54 +345,106 @@ export default function PublicCalendarPage() {
                   {weekDays.map((day, dayIndex) => {
                     const dayEvents = getEventsForDay(day)
                     return (
-                      <div key={dayIndex} className="relative min-h-[800px] bg-gray-50/50 rounded-2xl p-2">
-                        {/* Hour lines */}
-                        {hours.filter(h => h >= 8 && h <= 20).map((hour, i) => (
+                      <div key={dayIndex} className="relative min-h-[900px] bg-gray-50/50 rounded-2xl p-2">
+                        {hours.map((hour, i) => (
                           <div
                             key={hour}
                             className="absolute left-0 right-0 border-t border-gray-200"
-                            style={{ top: `${(i / 13) * 100}%` }}
+                            style={{ top: `${(i / (hours.length - 1)) * 100}%` }}
                           />
                         ))}
 
-                        {/* Events */}
-                        {dayEvents.map((event, i) => {
+                        {dayEvents.map((event) => {
                           const time = getEventTime(event)
                           const [hour, minute] = time.split(':').map(Number)
-                          const topPercent = ((hour - 8) / 13) * 100
+                          
+                          const startHour = 6
+                          const endHour = 19
+                          const totalHours = endHour - startHour
+                          const hoursSinceStart = hour + (minute / 60) - startHour
+                          const topPercent = (hoursSinceStart / totalHours) * 100
+                          
                           const color = getSeriesColor(event)
+                          const isExpanded = expandedEventId === event.id
                           
                           return (
                             <motion.div
                               key={event.id}
                               initial={{ scale: 0.8, opacity: 0 }}
-                              animate={{ scale: 1, opacity: 1 }}
-                              whileHover={{ scale: 1.05, zIndex: 10 }}
-                              onClick={() => setSelectedEvent(event)}
-                              className="absolute left-2 right-2 cursor-pointer rounded-xl p-3 backdrop-blur-sm"
+                              animate={{ 
+                                scale: 1, 
+                                opacity: 1,
+                                height: isExpanded ? '160px' : '60px'
+                              }}
+                              whileHover={{ scale: 1.02, y: -2, zIndex: 10 }}
+                              onClick={() => setExpandedEventId(isExpanded ? null : event.id)}
+                              className="absolute left-2 right-2 cursor-pointer rounded-2xl overflow-hidden group"
                               style={{
-                                top: `${topPercent}%`,
-                                height: '80px',
-                                background: `linear-gradient(135deg, ${color}90, ${color}60)`,
-                                boxShadow: `0 4px 20px ${color}40`,
-                                border: `1px solid ${color}50`
+                                top: `${Math.max(0, Math.min(topPercent, 95))}%`,
+                                boxShadow: `0 8px 24px ${color}30, 0 0 0 1px ${color}20`,
+                                zIndex: isExpanded ? 20 : 1
                               }}
                             >
-                              <div className="flex items-start gap-2">
-                                <div className="w-2 h-2 rounded-full bg-white mt-1 shadow-lg" />
-                                <div className="flex-1 min-w-0">
-                                  <div className="text-white font-semibold text-sm truncate">
-                                    {event.title}
+                              <div 
+                                className="absolute inset-0 opacity-90 group-hover:opacity-100 transition-opacity"
+                                style={{
+                                  background: `linear-gradient(135deg, ${color}e6 0%, ${color}cc 50%, ${color}b3 100%)`,
+                                }}
+                              />
+                              
+                              <div className="relative h-full flex flex-col p-3">
+                                <div className="flex items-center gap-2">
+                                  <div 
+                                    className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm shadow-lg"
+                                    style={{
+                                      background: 'rgba(255, 255, 255, 0.25)',
+                                      backdropFilter: 'blur(10px)',
+                                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                                      color: 'white'
+                                    }}
+                                  >
+                                    {event.extendedProps?.series?.name?.[0]?.toUpperCase() || 
+                                     event.series?.[0]?.toUpperCase() || 
+                                     event.title?.[0]?.toUpperCase() || '?'}
                                   </div>
-                                  {event.series && (
-                                    <div className="text-white/80 text-xs truncate">
-                                      {event.series}
+                                  
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-white font-bold text-xs truncate drop-shadow-lg">
+                                      {event.extendedProps?.series?.name || event.series || 'Unknown Series'}
                                     </div>
-                                  )}
-                                  <div className="text-white/70 text-xs mt-1">
-                                    {time}
+                                    <div className="text-white/90 text-xs truncate drop-shadow">
+                                      {time}
+                                    </div>
                                   </div>
                                 </div>
+                                
+                                {isExpanded && (
+                                  <motion.div
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    className="mt-3 space-y-2 text-white text-xs"
+                                  >
+                                    <div className="font-semibold">{event.title}</div>
+                                    {(event.extendedProps?.team || event.team) && (
+                                      <div className="flex items-center gap-2">
+                                        <Users size={12} />
+                                        <span>{event.extendedProps?.team || event.team}</span>
+                                      </div>
+                                    )}
+                                    {(event.extendedProps?.channel?.name || event.channel) && (
+                                      <div className="flex items-center gap-2">
+                                        <Youtube size={12} />
+                                        <span>{event.extendedProps?.channel?.name || event.channel}</span>
+                                      </div>
+                                    )}
+                                    {event.extendedProps?.viewCount !== undefined && (
+                                      <div className="flex items-center gap-2">
+                                        <Play size={12} />
+                                        <span>{formatNumber(event.extendedProps.viewCount)} views</span>
+                                      </div>
+                                    )}
+                                  </motion.div>
+                                )}
                               </div>
                             </motion.div>
                           )
@@ -368,7 +458,6 @@ export default function PublicCalendarPage() {
 
             {view === 'month' && (
               <div className="space-y-3">
-                {/* Month Days Header */}
                 <div className="grid grid-cols-7 gap-2 mb-4">
                   {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
                     <div key={day} className="text-center text-sm font-medium text-gray-500 py-2">
@@ -377,7 +466,6 @@ export default function PublicCalendarPage() {
                   ))}
                 </div>
 
-                {/* Month Grid */}
                 <div className="grid grid-cols-7 gap-2">
                   {monthDays.map((day, i) => {
                     const dayEvents = getEventsForDate(day)
@@ -387,7 +475,8 @@ export default function PublicCalendarPage() {
                         initial={{ opacity: 0, scale: 0.9 }}
                         animate={{ opacity: 1, scale: 1 }}
                         transition={{ delay: i * 0.01 }}
-                        className={`aspect-square rounded-2xl p-3 transition-all ${
+                        onClick={() => day && setSelectedDate(day)}
+                        className={`aspect-square rounded-2xl p-3 transition-all cursor-pointer ${
                           !day
                             ? 'bg-transparent'
                             : isToday(day)
@@ -406,23 +495,21 @@ export default function PublicCalendarPage() {
                               {day.getDate()}
                             </div>
                             <div className="mt-2 space-y-1">
-                              {dayEvents.slice(0, 3).map(event => (
-                                <motion.div
+                              {dayEvents.slice(0, 2).map(event => (
+                                <div
                                   key={event.id}
-                                  whileHover={{ scale: 1.05 }}
-                                  onClick={() => setSelectedEvent(event)}
-                                  className="text-xs p-1.5 rounded-lg cursor-pointer backdrop-blur-sm truncate"
+                                  className="text-xs p-1.5 rounded-lg backdrop-blur-sm truncate"
                                   style={{
                                     background: `${getSeriesColor(event)}80`,
                                     color: 'white'
                                   }}
                                 >
-                                  {event.title}
-                                </motion.div>
+                                  {event.extendedProps?.series?.name || event.series}
+                                </div>
                               ))}
-                              {dayEvents.length > 3 && (
+                              {dayEvents.length > 2 && (
                                 <div className="text-xs text-gray-500">
-                                  +{dayEvents.length - 3} more
+                                  +{dayEvents.length - 2} more
                                 </div>
                               )}
                             </div>
@@ -447,185 +534,198 @@ export default function PublicCalendarPage() {
                 </div>
 
                 <div className="space-y-3">
-                  {getEventsForDate(currentDate).map(event => {
-                    const color = getSeriesColor(event)
-                    return (
-                      <motion.div
-                        key={event.id}
-                        initial={{ x: -20, opacity: 0 }}
-                        animate={{ x: 0, opacity: 1 }}
-                        whileHover={{ scale: 1.02 }}
-                        onClick={() => setSelectedEvent(event)}
-                        className="p-6 rounded-2xl cursor-pointer backdrop-blur-sm"
-                        style={{
-                          background: `linear-gradient(135deg, ${color}90, ${color}60)`,
-                          boxShadow: `0 4px 20px ${color}40`
-                        }}
-                      >
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="text-white font-bold text-xl mb-2">{event.title}</div>
-                            {event.series && (
-                              <div className="text-white/90 text-sm">{event.series}</div>
-                            )}
-                            <div className="text-white/80 text-sm mt-2 flex items-center gap-2">
-                              <Clock size={14} />
-                              {getEventTime(event)}
+                  {getEventsForDate(currentDate).length === 0 ? (
+                    <div className="text-center py-12 text-gray-500">
+                      No episodes scheduled for this day
+                    </div>
+                  ) : (
+                    getEventsForDate(currentDate).map(event => {
+                      const color = getSeriesColor(event)
+                      return (
+                        <motion.div
+                          key={event.id}
+                          initial={{ x: -20, opacity: 0 }}
+                          animate={{ x: 0, opacity: 1 }}
+                          whileHover={{ scale: 1.02, y: -2 }}
+                          className="p-6 rounded-2xl overflow-hidden group relative"
+                          style={{
+                            background: `linear-gradient(135deg, ${color}e6, ${color}b3)`,
+                            boxShadow: `0 8px 24px ${color}30`
+                          }}
+                        >
+                          <div 
+                            className="absolute inset-0 opacity-0 group-hover:opacity-30 transition-opacity duration-500"
+                            style={{
+                              background: 'linear-gradient(135deg, transparent 0%, rgba(255,255,255,0.4) 50%, transparent 100%)',
+                            }}
+                          />
+                          
+                          <div className="relative flex items-start justify-between">
+                            <div className="flex-1 flex items-center gap-4">
+                              <div 
+                                className="flex-shrink-0 w-16 h-16 rounded-2xl flex items-center justify-center font-bold text-2xl shadow-lg"
+                                style={{
+                                  background: 'rgba(255, 255, 255, 0.25)',
+                                  backdropFilter: 'blur(10px)',
+                                  border: '1px solid rgba(255, 255, 255, 0.3)',
+                                  color: 'white'
+                                }}
+                              >
+                                {event.extendedProps?.series?.name?.[0]?.toUpperCase() || 
+                                 event.series?.[0]?.toUpperCase() || 
+                                 event.title?.[0]?.toUpperCase() || '?'}
+                              </div>
+                              
+                              <div className="flex-1 space-y-3">
+                                <div>
+                                  <div className="text-white font-bold text-xl mb-2 drop-shadow-lg">
+                                    {event.extendedProps?.series?.name || event.series || event.title}
+                                  </div>
+                                  <div className="text-white/90 text-sm drop-shadow">{event.title}</div>
+                                </div>
+                                
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div className="text-white/80 text-sm flex items-center gap-2 drop-shadow">
+                                    <Clock size={14} />
+                                    {getEventTime(event)}
+                                  </div>
+                                  {(event.extendedProps?.team || event.team) && (
+                                    <div className="text-white/80 text-sm flex items-center gap-2 drop-shadow">
+                                      <Users size={14} />
+                                      {event.extendedProps?.team || event.team}
+                                    </div>
+                                  )}
+                                  {(event.extendedProps?.channel?.name || event.channel) && (
+                                    <div className="text-white/80 text-sm flex items-center gap-2 drop-shadow">
+                                      <Youtube size={14} />
+                                      {event.extendedProps?.channel?.name || event.channel}
+                                    </div>
+                                  )}
+                                  {event.extendedProps?.viewCount !== undefined && (
+                                    <div className="text-white/80 text-sm flex items-center gap-2 drop-shadow">
+                                      <Play size={14} />
+                                      {formatNumber(event.extendedProps.viewCount)} views
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
                             </div>
+                            <div 
+                              className="w-3 h-3 rounded-full shadow-lg animate-pulse"
+                              style={{
+                                background: 'rgba(255, 255, 255, 0.9)',
+                                boxShadow: '0 0 8px rgba(255, 255, 255, 0.8)'
+                              }}
+                            />
                           </div>
-                          <div className="w-3 h-3 rounded-full bg-white shadow-lg" />
-                        </div>
-                      </motion.div>
-                    )
-                  })}
+                        </motion.div>
+                      )
+                    })
+                  )}
                 </div>
               </div>
             )}
           </motion.div>
 
-          {/* Event Details Panel */}
+          {/* Day Details Panel for Month View */}
           <AnimatePresence>
-            {selectedEvent && (
+            {selectedDate && view === 'month' && (
               <motion.div
                 initial={{ opacity: 0, x: 100, scale: 0.9 }}
                 animate={{ opacity: 1, x: 0, scale: 1 }}
                 exit={{ opacity: 0, x: 100, scale: 0.9 }}
-                className="w-96 bg-white rounded-3xl shadow-xl border border-gray-200 p-6 space-y-6"
+                className="w-96 bg-white rounded-3xl shadow-xl border border-gray-200 p-6 space-y-6 max-h-[800px] overflow-y-auto"
               >
-                {/* Header */}
-                <div className="flex items-start justify-between">
-                  <h3 className="text-xl font-bold text-gray-900 pr-8">{selectedEvent.title}</h3>
+                <div className="flex items-start justify-between sticky top-0 bg-white pb-4">
+                  <h3 className="text-xl font-bold text-gray-900">
+                    {selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                  </h3>
                   <motion.button
                     whileHover={{ scale: 1.1, rotate: 90 }}
                     whileTap={{ scale: 0.9 }}
-                    onClick={() => setSelectedEvent(null)}
+                    onClick={() => setSelectedDate(null)}
                     className="p-2 rounded-full hover:bg-gray-100 transition-all"
                   >
                     <X size={20} />
                   </motion.button>
                 </div>
 
-                {/* Series Badge */}
-                {selectedEvent.series && (
-                  <div
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-white font-medium"
-                    style={{ background: getSeriesColor(selectedEvent) }}
-                  >
-                    <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
-                    {selectedEvent.series}
-                  </div>
-                )}
-
-                {/* Details */}
                 <div className="space-y-3">
-                  {selectedEvent.team && (
-                    <div className="flex items-center gap-3 text-gray-700">
-                      <Users size={18} className="text-gray-400" />
-                      <span>{selectedEvent.team}</span>
+                  {getEventsForDate(selectedDate).length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      No episodes for this day
                     </div>
-                  )}
-                  {selectedEvent.channel && (
-                    <div className="flex items-center gap-3 text-gray-700">
-                      <Youtube size={18} className="text-gray-400" />
-                      <span>{selectedEvent.channel}</span>
-                    </div>
-                  )}
-                  {(selectedEvent.time || selectedEvent.start) && (
-                    <div className="flex items-center gap-3 text-gray-700">
-                      <Clock size={18} className="text-gray-400" />
-                      <span>{getEventTime(selectedEvent)}</span>
-                    </div>
+                  ) : (
+                    getEventsForDate(selectedDate).map((event, idx) => {
+                      const color = getSeriesColor(event)
+                      return (
+                        <motion.div
+                          key={event.id}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: idx * 0.1 }}
+                          className="p-4 rounded-2xl overflow-hidden relative"
+                          style={{
+                            background: `linear-gradient(135deg, ${color}e6, ${color}b3)`,
+                            boxShadow: `0 4px 12px ${color}30`
+                          }}
+                        >
+                          <div className="relative space-y-3">
+                            <div className="flex items-center gap-3">
+                              <div 
+                                className="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg shadow-lg"
+                                style={{
+                                  background: 'rgba(255, 255, 255, 0.25)',
+                                  backdropFilter: 'blur(10px)',
+                                  border: '1px solid rgba(255, 255, 255, 0.3)',
+                                  color: 'white'
+                                }}
+                              >
+                                {event.extendedProps?.series?.name?.[0]?.toUpperCase() || 
+                                 event.series?.[0]?.toUpperCase() || 
+                                 event.title?.[0]?.toUpperCase() || '?'}
+                              </div>
+                              
+                              <div className="flex-1 space-y-2">
+                                <div>
+                                  <div className="text-white font-bold text-sm drop-shadow-lg">
+                                    {event.extendedProps?.series?.name || event.series || 'Unknown Series'}
+                                  </div>
+                                  <div className="text-white/90 text-xs drop-shadow">{event.title}</div>
+                                </div>
+                                
+                                <div className="space-y-1">
+                                  <div className="text-white/80 text-xs flex items-center gap-2 drop-shadow">
+                                    <Clock size={12} />
+                                    {getEventTime(event)}
+                                  </div>
+                                  {(event.extendedProps?.channel?.name || event.channel) && (
+                                    <div className="text-white/80 text-xs flex items-center gap-2 drop-shadow">
+                                      <Youtube size={12} />
+                                      {event.extendedProps?.channel?.name || event.channel}
+                                    </div>
+                                  )}
+                                  {(event.extendedProps?.team || event.team) && (
+                                    <div className="text-white/80 text-xs flex items-center gap-2 drop-shadow">
+                                      <Users size={12} />
+                                      {event.extendedProps?.team || event.team}
+                                    </div>
+                                  )}
+                                  {event.extendedProps?.viewCount !== undefined && (
+                                    <div className="text-white/80 text-xs flex items-center gap-2 drop-shadow">
+                                      <Play size={12} />
+                                      {formatNumber(event.extendedProps.viewCount)} views
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          </motion.div>
+                        )
+                      })
                   )}
                 </div>
-
-                {/* Video-specific data */}
-                {selectedEvent.type === 'video' && (
-                  <>
-                    <div className="grid grid-cols-2 gap-4">
-                      {selectedEvent.viewCount !== undefined && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl p-4"
-                        >
-                          <Play size={16} className="text-gray-400 mb-2" />
-                          <div className="text-2xl font-bold text-gray-900">{formatNumber(selectedEvent.viewCount)}</div>
-                          <div className="text-xs text-gray-500 mt-1">Views</div>
-                        </motion.div>
-                      )}
-                      {selectedEvent.likeCount !== undefined && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.1 }}
-                          className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl p-4"
-                        >
-                          <Youtube size={16} className="text-gray-400 mb-2" />
-                          <div className="text-2xl font-bold text-gray-900">{formatNumber(selectedEvent.likeCount)}</div>
-                          <div className="text-xs text-gray-500 mt-1">Likes</div>
-                        </motion.div>
-                      )}
-                      {selectedEvent.subtitleCount !== undefined && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.2 }}
-                          className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl p-4"
-                        >
-                          <Calendar size={16} className="text-gray-400 mb-2" />
-                          <div className="text-2xl font-bold text-gray-900">{selectedEvent.subtitleCount}/100</div>
-                          <div className="text-xs text-gray-500 mt-1">Subtitles</div>
-                        </motion.div>
-                      )}
-                      {selectedEvent.adStatus && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.3 }}
-                          className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl p-4"
-                        >
-                          <Clock size={16} className="text-gray-400 mb-2" />
-                          <div className="text-2xl font-bold text-gray-900 capitalize">{selectedEvent.adStatus}</div>
-                          <div className="text-xs text-gray-500 mt-1">Ad Status</div>
-                        </motion.div>
-                      )}
-                    </div>
-
-                    {selectedEvent.videoId && (
-                      <motion.a
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        href={`https://youtube.com/watch?v=${selectedEvent.videoId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center justify-center gap-3 bg-gradient-to-r from-red-600 to-red-500 text-white px-6 py-4 rounded-2xl font-medium shadow-lg hover:shadow-xl transition-all"
-                      >
-                        <Youtube size={20} />
-                        Watch on YouTube
-                      </motion.a>
-                    )}
-                  </>
-                )}
-
-                {/* Planned event info */}
-                {(selectedEvent.type === 'planned-episode' || selectedEvent.type === 'planned-trailer') && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
-                    <p className="text-sm text-blue-800">
-                      This is a planned {selectedEvent.type === 'planned-episode' ? 'episode' : 'trailer'} based on the series schedule.
-                    </p>
-                  </div>
-                )}
-
-                {/* Status Badge */}
-                {selectedEvent.status && (
-                  <div className={`text-center py-3 rounded-2xl font-medium ${
-                    selectedEvent.status === 'uploaded' ? 'bg-green-50 text-green-700' :
-                    selectedEvent.status === 'scheduled' ? 'bg-yellow-50 text-yellow-700' :
-                    'bg-red-50 text-red-700'
-                  }`}>
-                    {selectedEvent.status.toUpperCase()}
-                  </div>
-                )}
               </motion.div>
             )}
           </AnimatePresence>

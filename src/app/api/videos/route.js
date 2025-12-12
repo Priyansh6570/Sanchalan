@@ -2,7 +2,11 @@
 import { NextResponse } from 'next/server'
 import connectDB from '@/lib/db/connect'
 import Video from '@/models/Video'
+import Channel from '@/models/Channel'
+import Series from '@/models/Series'
+import Team from '@/models/Team'
 import { extractVideoId, fetchVideoDetails } from '@/lib/youtube/api'
+import { isYouTubeConnected } from '@/lib/youtube/oauth'
 
 // GET all videos
 export async function GET() {
@@ -33,7 +37,7 @@ export async function GET() {
   }
 }
 
-// POST - Add new video
+// POST - Add new video (supports both published and scheduled videos)
 export async function POST(request) {
   try {
     await connectDB()
@@ -44,7 +48,7 @@ export async function POST(request) {
       series,
       expectedUploadDate,
       adStatus,
-      seoNotes 
+      seoNotes,
     } = body
 
     if (!videoUrl || !channel || !series) {
@@ -72,15 +76,74 @@ export async function POST(request) {
       )
     }
 
-    // Fetch video details from YouTube (now includes subtitle count)
-    const youtubeData = await fetchVideoDetails(videoId)
+    // Check if YouTube OAuth is connected
+    const isOAuthConnected = await isYouTubeConnected()
+    
+    // Try to fetch video details
+    let youtubeData
+    let videoIsScheduled = false
+    let fetchMethod = 'API Key'
+    
+    try {
+      console.log('📡 Attempting to fetch video with API key...')
+      youtubeData = await fetchVideoDetails(videoId, { useOAuth: false })
+      videoIsScheduled = youtubeData.isScheduled
+      fetchMethod = 'API Key'
+    } catch (firstError) {
+      console.log('⚠️ API key fetch failed:', firstError.message)
+      
+      // If first attempt fails and OAuth is available, try with OAuth
+      if (isOAuthConnected) {
+        try {
+          console.log('🔐 Attempting to fetch video with OAuth...')
+          youtubeData = await fetchVideoDetails(videoId, { useOAuth: true })
+          videoIsScheduled = youtubeData.isScheduled || youtubeData.privacyStatus === 'private'
+          fetchMethod = 'OAuth'
+          console.log('✅ Successfully fetched video with OAuth')
+        } catch (secondError) {
+          console.error('❌ OAuth fetch also failed:', secondError.message)
+          
+          return NextResponse.json(
+            { 
+              success: false, 
+              error: secondError.message,
+              needsAuth: !isOAuthConnected,
+              suggestion: !isOAuthConnected 
+                ? 'This video appears to be private or scheduled. Please connect your YouTube account to add private/scheduled videos.'
+                : 'Unable to access this video. Please verify the video URL and ensure you have permission to access it.'
+            },
+            { status: 400 }
+          )
+        }
+      } else {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'Unable to fetch video details. This video may be private or scheduled.',
+            needsAuth: true,
+            suggestion: 'Please connect your YouTube account to add private or scheduled videos. Go to Settings → Connect YouTube.'
+          },
+          { status: 400 }
+        )
+      }
+    }
 
-    // Determine status based on publish date
+    console.log(`✅ Video fetched using: ${fetchMethod}`)
+    console.log(`📊 Privacy: ${youtubeData.privacyStatus}, Scheduled: ${videoIsScheduled}`)
+    console.log(`📝 Subtitles: ${youtubeData.subtitleCount || 0}`)
+
+    // Determine video status based on various factors
     const now = new Date()
-    const publishDate = new Date(youtubeData.publishedAt)
+    const publishDate = youtubeData.scheduledPublishTime 
+      ? new Date(youtubeData.scheduledPublishTime) 
+      : new Date(youtubeData.publishedAt)
+    
     let status = 'uploaded'
     
-    if (publishDate > now) {
+    // Check if video is scheduled for future
+    if (videoIsScheduled || youtubeData.scheduledPublishTime) {
+      status = 'scheduled'
+    } else if (publishDate > now) {
       status = 'scheduled'
     } else if (expectedUploadDate) {
       const expected = new Date(expectedUploadDate)
@@ -89,22 +152,39 @@ export async function POST(request) {
       }
     }
 
-    // Create video with auto-fetched subtitle count
+    // Prepare publish date field
+    const actualPublishDate = youtubeData.scheduledPublishTime 
+      ? new Date(youtubeData.scheduledPublishTime)
+      : youtubeData.privacyStatus === 'private' && expectedUploadDate
+        ? new Date(expectedUploadDate)
+        : new Date(youtubeData.publishedAt)
+
+    // Create video with auto-fetched data
     const video = await Video.create({
       videoId,
       title: youtubeData.title,
       description: youtubeData.description,
       thumbnailUrl: youtubeData.thumbnailUrl,
       duration: youtubeData.duration,
-      publishedAt: youtubeData.publishedAt,
+      publishedAt: actualPublishDate,
       channel,
       series,
-      viewCount: youtubeData.viewCount,
-      likeCount: youtubeData.likeCount,
-      commentCount: youtubeData.commentCount,
-      // Auto-fetched subtitle data
+      viewCount: youtubeData.viewCount || 0,
+      likeCount: youtubeData.likeCount || 0,
+      commentCount: youtubeData.commentCount || 0,
+      
+      // Auto-fetched subtitle data - FIXED: Store in both places
       subtitleCount: youtubeData.subtitleCount || 0,
-      subtitles: youtubeData.subtitles || { count: 0, languages: [], lastSynced: new Date() },
+      subtitles: {
+        count: youtubeData.subtitleCount || 0,
+        languages: youtubeData.subtitles?.languages || [],
+        lastSynced: new Date()
+      },
+      
+      // Store privacy status
+      privacyStatus: youtubeData.privacyStatus || 'public',
+      uploadStatus: youtubeData.uploadStatus || 'processed',
+      
       // User-provided data
       adStatus: adStatus || 'not-set',
       seoNotes: seoNotes || '',
@@ -124,10 +204,29 @@ export async function POST(request) {
       }
     })
 
+    // Create success message based on video status
+    let successMessage = `Video added successfully`
+    
+    if (youtubeData.subtitleCount > 0) {
+      successMessage += ` with ${youtubeData.subtitleCount} subtitle(s)`
+    }
+    
+    if (status === 'scheduled') {
+      if (youtubeData.scheduledPublishTime) {
+        successMessage += `. Scheduled to publish on ${new Date(youtubeData.scheduledPublishTime).toLocaleString()}`
+      } else {
+        successMessage += `. This video is marked as scheduled`
+      }
+    }
+
     return NextResponse.json({
       success: true,
       video,
-      message: `Video added successfully with ${youtubeData.subtitleCount || 0} subtitle(s) detected`,
+      message: successMessage,
+      isScheduled: videoIsScheduled,
+      scheduledPublishTime: youtubeData.scheduledPublishTime,
+      fetchMethod,
+      privacyStatus: youtubeData.privacyStatus,
     })
   } catch (error) {
     console.error('Error adding video:', error)
@@ -137,3 +236,4 @@ export async function POST(request) {
     )
   }
 }
+// return Response.json({ videos })

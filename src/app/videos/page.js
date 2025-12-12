@@ -14,6 +14,7 @@ export default function VideosPage() {
     try {
       const response = await fetch('/api/videos')
       const data = await response.json()
+      console.log('Fetched videos:', data)
       setVideos(data.videos || [])
     } catch (error) {
       console.error('Error fetching videos:', error)
@@ -145,6 +146,21 @@ function VideoCard({ video, delay }) {
     'not-set': 'bg-gray-100 text-gray-600'
   }
 
+  const privacyColors = {
+    public: 'bg-green-100 text-green-800',
+    unlisted: 'bg-yellow-100 text-yellow-800',
+    private: 'bg-purple-100 text-purple-800'
+  }
+
+  const privacyIcons = {
+    public: '🌐',
+    unlisted: '🔗',
+    private: '🔒'
+  }
+
+  // Get subtitle count from either location
+  const subtitleCount = video.subtitles?.count || video.subtitleCount || 0
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -224,6 +240,7 @@ function AddVideoModal({ isOpen, onClose, onSuccess }) {
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [youtubeConnected, setYoutubeConnected] = useState(false)
   
   const [videoUrl, setVideoUrl] = useState('')
   const [channels, setChannels] = useState([])
@@ -241,8 +258,19 @@ function AddVideoModal({ isOpen, onClose, onSuccess }) {
   useEffect(() => {
     if (isOpen) {
       fetchChannelsAndSeries()
+      checkYouTubeStatus()
     }
   }, [isOpen])
+
+  const checkYouTubeStatus = async () => {
+    try {
+      const response = await fetch('/api/auth/youtube/status')
+      const data = await response.json()
+      setYoutubeConnected(data.connected && !data.needsReconnect)
+    } catch (error) {
+      setYoutubeConnected(false)
+    }
+  }
 
   const fetchChannelsAndSeries = async () => {
     try {
@@ -252,6 +280,8 @@ function AddVideoModal({ isOpen, onClose, onSuccess }) {
       ])
       setChannels(channelsRes.channels || [])
       setSeries(seriesRes.series || [])
+      console.log('Channels loaded:', channelsRes.channels?.length || 0)
+      console.log('Series loaded:', seriesRes.series?.length || 0)
     } catch (error) {
       console.error('Error fetching channels/series:', error)
     }
@@ -277,17 +307,30 @@ function AddVideoModal({ isOpen, onClose, onSuccess }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           videoUrl,
-          ...formData
+          ...formData,
+          isScheduled: true
         })
       })
 
       const data = await response.json()
 
       if (data.success) {
+        // Show success message with schedule info if applicable
+        if (data.isScheduled && data.scheduledPublishTime) {
+          alert(`✅ ${data.message}`)
+        }
         onSuccess()
         resetForm()
       } else {
-        setError(data.error || 'Failed to add video')
+        // Provide helpful error for videos requiring authentication
+        if (data.needsAuth) {
+          setError(
+            `${data.error}\n\n${data.suggestion || ''}\n\n` +
+            `🔗 To add private or scheduled videos, connect your YouTube account in Settings.`
+          )
+        } else {
+          setError(data.error || 'Failed to add video')
+        }
       }
     } catch (error) {
       console.error('Error adding video:', error)
@@ -338,12 +381,32 @@ function AddVideoModal({ isOpen, onClose, onSuccess }) {
 
             <div className="p-6 space-y-6">
               {error && (
-                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg whitespace-pre-line">
                   {error}
                 </div>
               )}
 
               <div className="space-y-4">
+                {!youtubeConnected && (
+                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                    <div className="flex items-start gap-3">
+                      <span className="text-2xl">⚠️</span>
+                      <div>
+                        <p className="text-sm font-medium text-orange-900">YouTube Not Connected</p>
+                        <p className="text-xs text-orange-700 mt-1">
+                          You can add public videos, but private/scheduled videos require YouTube authentication.
+                        </p>
+                        <a 
+                          href="/api/auth/youtube"
+                          className="inline-block mt-2 text-xs text-orange-800 underline hover:text-orange-900"
+                        >
+                          Connect YouTube Account →
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     YouTube Video URL *
@@ -360,7 +423,7 @@ function AddVideoModal({ isOpen, onClose, onSuccess }) {
                   </p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Channel *
@@ -377,6 +440,9 @@ function AddVideoModal({ isOpen, onClose, onSuccess }) {
                         </option>
                       ))}
                     </select>
+                    {channels.length === 0 && (
+                      <p className="text-xs text-gray-500 mt-1">Loading channels...</p>
+                    )}
                   </div>
 
                   <div>
@@ -395,7 +461,13 @@ function AddVideoModal({ isOpen, onClose, onSuccess }) {
                         </option>
                       ))}
                     </select>
+                    {series.length === 0 && (
+                      <p className="text-xs text-gray-500 mt-1">Loading series...</p>
+                    )}
                   </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">

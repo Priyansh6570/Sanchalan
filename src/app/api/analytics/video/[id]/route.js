@@ -3,7 +3,14 @@ import { NextResponse } from 'next/server'
 import connectDB from '@/lib/db/connect'
 import Video from '@/models/Video'
 import { getValidAccessToken } from '@/lib/youtube/oauth'
-import { getVideoAnalytics, getTrafficSources } from '@/lib/youtube/analytics'
+import { 
+  getVideoAnalytics, 
+  getTrafficSources,
+  getGeographicData,
+  getDemographicData,
+  getDeviceData,
+  getSubtitleUsageData
+} from '@/lib/youtube/analytics'
 import { fetchVideoDetails, fetchVideoCaptions } from '@/lib/youtube/api'
 
 export async function GET(request, { params }) {
@@ -37,11 +44,24 @@ export async function GET(request, { params }) {
     }
 
     // Fetch all data in parallel
-    const [analyticsData, trafficData, videoDetails, captionsData] = await Promise.allSettled([
+    const [
+      analyticsData, 
+      trafficData, 
+      videoDetails, 
+      captionsData,
+      geographicData,
+      demographicData,
+      deviceData,
+      subtitleUsageData
+    ] = await Promise.allSettled([
       getVideoAnalytics(video.videoId, accessToken),
       getTrafficSources(video.videoId, accessToken),
       fetchVideoDetails(video.videoId),
-      fetchVideoCaptions(video.videoId)
+      fetchVideoCaptions(video.videoId),
+      getGeographicData(video.videoId, accessToken),
+      getDemographicData(video.videoId, accessToken),
+      getDeviceData(video.videoId, accessToken),
+      getSubtitleUsageData(video.videoId, accessToken)
     ])
 
     // Handle analytics data
@@ -64,6 +84,50 @@ export async function GET(request, { params }) {
           views: row[1],
         })
       })
+    }
+
+    // Handle geographic data
+    const geographic = {
+      countries: [],
+      states: [],
+      cities: []
+    }
+    if (geographicData.status === 'fulfilled' && geographicData.value) {
+      geographic.countries = geographicData.value.countries || []
+      geographic.states = geographicData.value.states || []
+      geographic.cities = geographicData.value.cities || []
+    }
+
+    // Handle demographic data
+    const demographics = {
+      ageGroups: [],
+      genderDistribution: []
+    }
+    if (demographicData.status === 'fulfilled' && demographicData.value) {
+      demographics.ageGroups = demographicData.value.ageGroups || []
+      demographics.genderDistribution = demographicData.value.genderDistribution || []
+    }
+
+    // Handle device data
+    const devices = {
+      deviceTypes: [],
+      operatingSystems: [],
+      playbackLocations: []
+    }
+    if (deviceData.status === 'fulfilled' && deviceData.value) {
+      devices.deviceTypes = deviceData.value.deviceTypes || []
+      devices.operatingSystems = deviceData.value.operatingSystems || []
+      devices.playbackLocations = deviceData.value.playbackLocations || []
+    }
+
+    // Handle subtitle usage data
+    const subtitleUsage = {
+      enabled: [],
+      topLanguages: []
+    }
+    if (subtitleUsageData.status === 'fulfilled' && subtitleUsageData.value) {
+      subtitleUsage.enabled = subtitleUsageData.value.enabled || []
+      subtitleUsage.topLanguages = subtitleUsageData.value.topLanguages || []
     }
 
     // Handle video details
@@ -112,6 +176,10 @@ export async function GET(request, { params }) {
         subscribersGained: metrics.subscribersGained || 0,
       },
       trafficSources,
+      geographic,
+      demographics,
+      devices,
+      subtitleUsage,
       subtitles: subtitleInfo,
       currentStats,
       fetchedAt: new Date(),
@@ -120,6 +188,10 @@ export async function GET(request, { params }) {
         trafficUnavailable: trafficData.status === 'rejected',
         videoDetailsUnavailable: videoDetails.status === 'rejected',
         captionsUnavailable: captionsData.status === 'rejected',
+        geographicUnavailable: geographicData.status === 'rejected',
+        demographicUnavailable: demographicData.status === 'rejected',
+        deviceUnavailable: deviceData.status === 'rejected',
+        subtitleUsageUnavailable: subtitleUsageData.status === 'rejected',
       }
     })
   } catch (error) {

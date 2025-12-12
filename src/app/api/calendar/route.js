@@ -3,6 +3,8 @@ import { NextResponse } from 'next/server'
 import connectDB from '@/lib/db/connect'
 import Video from '@/models/Video'
 import Series from '@/models/Series'
+import Team from '@/models/Team'
+import Channel from '@/models/Channel'
 
 export async function GET() {
   try {
@@ -11,12 +13,16 @@ export async function GET() {
     const now = new Date()
     const nextWeek = new Date()
     nextWeek.setDate(now.getDate() + 7)
+    
+    // Get last 7 days to show recent uploads
+    const lastWeek = new Date()
+    lastWeek.setDate(now.getDate() - 7)
 
-    // Get all videos within next 7 days
+    // Get all videos within last 7 days AND next 7 days (14 days total window)
     const videos = await Video.find({
       $or: [
-        { publishedAt: { $gte: now, $lte: nextWeek } },
-        { expectedUploadDate: { $gte: now, $lte: nextWeek } }
+        { publishedAt: { $gte: lastWeek, $lte: nextWeek } },
+        { expectedUploadDate: { $gte: lastWeek, $lte: nextWeek } }
       ]
     })
       .populate('channel', 'name')
@@ -28,13 +34,14 @@ export async function GET() {
           select: 'name'
         }
       })
+      .sort({ publishedAt: -1, expectedUploadDate: -1 })
 
     // Get all series with schedules
     const series = await Series.find({
       status: 'active',
       $or: [
-        { episodeUploadDay: { $ne: '' } },
-        { trailerUploadDay: { $ne: '' } }
+        { episodeUploadDays: { $exists: true, $ne: [] } },
+        { trailerUploadDays: { $exists: true, $ne: [] } }
       ]
     }).populate('channel team')
 
@@ -44,7 +51,7 @@ export async function GET() {
     videos.forEach(video => {
       const date = video.publishedAt || video.expectedUploadDate
       
-      let backgroundColor = '#22c55e' // green
+      let backgroundColor = '#22c55e' // green for uploaded
       let borderColor = '#16a34a'
       
       if (video.status === 'scheduled') {
@@ -61,19 +68,27 @@ export async function GET() {
         start: date,
         backgroundColor,
         borderColor,
-        textColor: '#000',
+        textColor: '#ffffff',
         extendedProps: {
           videoId: video.videoId,
-          series: video.series?.name,
-          seriesId: video.series?._id,
+          series: {
+            name: video.series?.name,
+            _id: video.series?._id
+          },
           team: video.series?.team?.name,
-          channel: video.channel?.name,
+          channel: {
+            name: video.channel?.name,
+            _id: video.channel?._id
+          },
           viewCount: video.viewCount,
           likeCount: video.likeCount,
+          commentCount: video.commentCount,
           subtitleCount: video.subtitleCount,
           adStatus: video.adStatus,
           status: video.status,
-          type: 'video'
+          type: 'video',
+          duration: video.duration,
+          thumbnailUrl: video.thumbnailUrl
         }
       })
     })
@@ -100,14 +115,19 @@ export async function GET() {
                   id: `episode-${s._id}-${schedule.day}-${nextDate.getTime()}`,
                   title: `${s.name} - Episode (Planned)`,
                   start: nextDate.toISOString(),
-                  backgroundColor: 'rgba(34,197,94,0.2)',
+                  backgroundColor: 'rgba(34,197,94,0.3)',
                   borderColor: '#22c55e',
-                  textColor: '#166534',
+                  textColor: '#ffffff',
                   extendedProps: {
-                    series: s.name,
-                    seriesId: s._id,
+                    series: {
+                      name: s.name,
+                      _id: s._id
+                    },
                     team: s.team?.name,
-                    channel: s.channel?.name,
+                    channel: {
+                      name: s.channel?.name,
+                      _id: s.channel?._id
+                    },
                     type: 'planned-episode',
                     time: schedule.time
                   }
@@ -136,14 +156,19 @@ export async function GET() {
                   id: `trailer-${s._id}-${schedule.day}-${nextDate.getTime()}`,
                   title: `${s.name} - Trailer (Planned)`,
                   start: nextDate.toISOString(),
-                  backgroundColor: 'rgba(59,130,246,0.2)',
+                  backgroundColor: 'rgba(59,130,246,0.3)',
                   borderColor: '#3b82f6',
-                  textColor: '#1e40af',
+                  textColor: '#ffffff',
                   extendedProps: {
-                    series: s.name,
-                    seriesId: s._id,
+                    series: {
+                      name: s.name,
+                      _id: s._id
+                    },
                     team: s.team?.name,
-                    channel: s.channel?.name,
+                    channel: {
+                      name: s.channel?.name,
+                      _id: s.channel?._id
+                    },
                     type: 'planned-trailer',
                     time: schedule.time
                   }
@@ -158,6 +183,7 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       events,
+      count: events.length
     })
   } catch (error) {
     console.error('Error fetching calendar data:', error)
